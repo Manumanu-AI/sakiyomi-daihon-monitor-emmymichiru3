@@ -231,47 +231,55 @@ def generate_response_with_llm_for_multiple_namespaces(index, user_input, namesp
             search_results = index.query(
                 namespace=ns,
                 vector=query_embedding.tolist(),
-                top_k=1,
+                top_k=3,
                 include_metadata=True
             )
-            result_texts = [result['metadata']['text_chunk'] for result in search_results['matches']]
-            results[ns] = " ".join(result_texts) if result_texts else "情報なし"
+            if ns == "ns3":
+                # ns3のメタデータを直接利用する特別な処理
+                if search_results['matches']:
+                    metadata = search_results['matches'][0]['metadata']
+                    # 新しいメタデータ形式に基づいて内容を整形してLLMに渡す
+                    results[ns] = "\n".join([f"{key}: {value}" for key, value in metadata.items()])
+            else:
+                # 他の名前空間の処理は変更なし
+                result_texts = [result['metadata']['text_chunk'] for result in search_results['matches']]
+                results[ns] = " ".join(result_texts) if result_texts else "情報なし"
         except KeyError as e:
             print(f"エラーが発生しました: 名前空間 '{ns}' で {e} キーが見つかりません。")
             results[ns] = "エラー: 検索結果が見つかりませんでした。"
 
     # プロンプトテンプレートの準備
     prompt_template = PromptTemplate.from_template("""
-    あなたはInstagramフィードの台本専門の作家です。
-    ユーザーメッセージのメッセージに従い、Instagramのフィード台本を生成してください。
-    ----------
-    【ユーザーのメッセージ】
-    {user_input}
+    あなたはインスタグラムのフィード投稿用の台本を書くプロです。
+    ユーザーメッセージに従ってインスタグラム用のフィードを作って下さい。
     
-    ----------
-    【台本作成時のポイント】
-    ・MECEに詳しく書いてください
-    ・なるべく具体的にかいてください。そのため、1枚1枚の情報量は多くなっても良いです。
-    ・数字で伝えられる部分はなるべくそうする。
-    ・合計8枚以上で書いてください。
-    ・「見出し」をつけてください。       
-
-    ----------
-    その際、【過去ユーザーが発信した関連内容】と一貫性があること。
-    また、今回ユーザーが希望する【テーマの関連情報」を使ってください。
-    ----------
-    【テーマの関連情報】
-    {results_ns1}
-    {results_ns2}
-    ----------
-    【過去ユーザーが発信した関連内容】
-    {results_ns3}
-    ----------
-    生成する台本のフォーマットは【アウトプット例】と同じにして生成してください。
-    ----------
-    【アウトプット例】
-    {example_plot}
-                                    
+    【台本を作るときの条件】
+    ・投稿をニーズではなくジョブ起点で作って下さい。
+    ・タイトルは簡潔でジョブベースであること。ユーザーが作ってほしい台本のテーマをくれるので、そのまま書くのではなく。そのテーマを細分化していったときの、超具体的な要素1つを選んでテーマにし、そのテーマのジョブ(困りごと)起点で書いて下さい。
+    ・2枚目には投稿を読むターゲットが共感できる内容を含めて下さい。共感できる内容は「理想(こうしたい)」と「理想と現実のギャップに生じる課題、悩み(だけど、、)」の2点を文脈にを含めること。その際、タイトルで決めたこの投稿のテーマをしっかり絡めて下さい。
+    ・投稿内で提示するアクションは超具体的に掘り下げて、一般的なアドバイスにならないようにすること。ある程度ハードルが低いアクションが理想です。ありきたりなアドバイスはつまらないので、とにかく具体度を一段階も二段階も掘り下げましょう。情報が断片的になるのはむしろ掘り下げられている証拠なのでGoodです。独自視点 主観的かつ言い切り表現や評価を全体的に含めて下さい。
+    ・具体的な例とアクションを入れること。この投稿を見た後に迷わず出来るようなこと。
+    ・提示するアクションは、主観で「断定」してしまってください。複数の選択肢があるときも1つ、多くて2つを選択し、とにかく主観で断定・評価すること。一般的な広くて浅い情報はつまらなく、言い切って尖らせたほうが魅力的です。
+    ・「結局こうすればいいよ」というのを必ず含める。特に終盤やまとめでは重要で、あとでこの投稿を見返したくなります。そうすると保存され投稿が伸びます。
+    ・下記の【過去Instagramで投稿された台本】の情報と口調を参照すること。
+    ・下記の【テーマの関連情報】をソースとして使ってください。
+    ・生成する台本のフォーマットは【アウトプット例】と同じフォーマットで生成してください。
+    
+        ----------
+        【ユーザーのメッセージ】
+        {user_input}
+        ----------
+        【テーマの関連情報】
+        {results_ns1}
+        {results_ns2}
+        ----------
+        【過去Instagramで投稿された台本】
+        {results_ns3}
+        ----------
+        生成する台本のフォーマットは【アウトプット例】と同じフォーマットで生成してください。
+        ----------
+        【アウトプット例】
+        {example_plot}
     """)
 
     # LLMにプロンプトを渡して応答を生成
@@ -290,6 +298,7 @@ def generate_response_with_llm_for_multiple_namespaces(index, user_input, namesp
             "example_plot": example_plot
         })
         return response
+
 
 
 
@@ -331,13 +340,12 @@ embeddings = make_chunks_embeddings(chunks)
 print("エンベディングスの数:", len(embeddings))
 
 #print("テスト: データをPineconeに保存")
-store_data_in_pinecone(index, embeddings, chunks, metadata_list, "ns2")
+store_data_in_pinecone(index, embeddings, chunks, metadata_list, "ns1")
 
 
 # クエリを実行して結果をプリント
 query = "トマトとはを最初に解説して、その後トマトの育て方を詳しく教えてください。 また栄養面からもトマトを育てるメリットを"
-search_results = perform_similarity_search(index, query, "ns2" , top_k=10)
+search_results = perform_similarity_search(index, query, "ns1" , top_k=1)
 print(search_results)
 
-
-#delete_all_data_in_namespace(index, "ns2")
+delete_all_data_in_namespace(index, "ns1")
